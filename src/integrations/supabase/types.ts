@@ -14,7 +14,80 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      routes: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean | null
+          route_name: string
+          route_number: string
+          updated_at: string
+          vehicle_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          route_name: string
+          route_number: string
+          updated_at?: string
+          vehicle_type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          route_name?: string
+          route_number?: string
+          updated_at?: string
+          vehicle_type?: string
+        }
+        Relationships: []
+      }
+      vehicle_locations: {
+        Row: {
+          created_at: string
+          current_location: string
+          estimated_time: string
+          id: string
+          last_updated: string
+          latitude: number | null
+          longitude: number | null
+          route_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          current_location: string
+          estimated_time: string
+          id?: string
+          last_updated?: string
+          latitude?: number | null
+          longitude?: number | null
+          route_id: string
+          status: string
+        }
+        Update: {
+          created_at?: string
+          current_location?: string
+          estimated_time?: string
+          id?: string
+          last_updated?: string
+          latitude?: number | null
+          longitude?: number | null
+          route_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vehicle_locations_route_id_fkey"
+            columns: ["route_id"]
+            isOneToOne: false
+            referencedRelation: "routes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

@@ -1,47 +1,128 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import RouteCard from "./RouteCard";
-import { MapPin, List } from "lucide-react";
+import { MapPin, List, Loader2 } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
+
+interface Route {
+  id: string;
+  route_number: string;
+  route_name: string;
+  vehicle_type: "bus" | "van";
+}
+
+interface VehicleLocation {
+  id: string;
+  route_id: string;
+  current_location: string;
+  estimated_time: string;
+  status: "on-time" | "delayed" | "arrived";
+  last_updated: string;
+}
+
+interface RouteWithLocation extends Route {
+  location?: VehicleLocation;
+}
 
 const LiveTracker = () => {
   const [activeView, setActiveView] = useState<"map" | "list">("list");
+  const [routes, setRoutes] = useState<RouteWithLocation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
 
-  const mockRoutes = [
-    {
-      routeNumber: "A1",
-      routeName: "Main Campus - North Gate",
-      currentLocation: "Library Junction",
-      estimatedTime: "5 mins",
-      status: "on-time" as const,
-      vehicleType: "bus" as const,
-    },
-    {
-      routeNumber: "B2",
-      routeName: "Hostel Block - East Campus",
-      currentLocation: "Sports Complex",
-      estimatedTime: "12 mins",
-      status: "delayed" as const,
-      vehicleType: "van" as const,
-    },
-    {
-      routeNumber: "C3",
-      routeName: "Metro Station - Main Gate",
-      currentLocation: "Main Gate",
-      estimatedTime: "Arrived",
-      status: "arrived" as const,
-      vehicleType: "bus" as const,
-    },
-    {
-      routeNumber: "D4",
-      routeName: "Downtown - Campus Center",
-      currentLocation: "City Mall",
-      estimatedTime: "8 mins",
-      status: "on-time" as const,
-      vehicleType: "bus" as const,
-    },
-  ];
+  const fetchRoutesWithLocations = async () => {
+    try {
+      // Fetch routes
+      const { data: routesData, error: routesError } = await supabase
+        .from("routes")
+        .select("*")
+        .eq("is_active", true)
+        .order("route_number");
+
+      if (routesError) throw routesError;
+
+      // Fetch latest vehicle locations
+      const { data: locationsData, error: locationsError } = await supabase
+        .from("vehicle_locations")
+        .select("*")
+        .order("last_updated", { ascending: false });
+
+      if (locationsError) throw locationsError;
+
+      // Combine routes with their latest location
+      const routesWithLocations: RouteWithLocation[] = routesData?.map((route) => {
+        const location = locationsData?.find((loc) => loc.route_id === route.id);
+        return {
+          id: route.id,
+          route_number: route.route_number,
+          route_name: route.route_name,
+          vehicle_type: route.vehicle_type as "bus" | "van",
+          location: location ? {
+            id: location.id,
+            route_id: location.route_id,
+            current_location: location.current_location,
+            estimated_time: location.estimated_time,
+            status: location.status as "on-time" | "delayed" | "arrived",
+            last_updated: location.last_updated,
+          } : undefined,
+        };
+      }) || [];
+
+      setRoutes(routesWithLocations);
+    } catch (error) {
+      console.error("Error fetching routes:", error);
+      toast({
+        title: "Error loading routes",
+        description: "Failed to fetch route information",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRoutesWithLocations();
+
+    // Subscribe to real-time updates
+    const channel = supabase
+      .channel("vehicle_locations_changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "vehicle_locations",
+        },
+        (payload) => {
+          console.log("Real-time update:", payload);
+          fetchRoutesWithLocations();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <section className="py-16 px-4">
+        <div className="container mx-auto max-w-7xl">
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="text-center space-y-4">
+              <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
+              <p className="text-muted-foreground">Loading routes...</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="py-16 px-4">
@@ -68,11 +149,25 @@ const LiveTracker = () => {
           </TabsList>
 
           <TabsContent value="list" className="space-y-6">
-            <div className="grid md:grid-cols-2 gap-6">
-              {mockRoutes.map((route) => (
-                <RouteCard key={route.routeNumber} {...route} />
-              ))}
-            </div>
+            {routes.length === 0 ? (
+              <Card className="p-12 text-center bg-gradient-card border-border/50">
+                <p className="text-muted-foreground">No active routes found</p>
+              </Card>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-6">
+                {routes.map((route) => (
+                  <RouteCard
+                    key={route.id}
+                    routeNumber={route.route_number}
+                    routeName={route.route_name}
+                    currentLocation={route.location?.current_location || "Unknown"}
+                    estimatedTime={route.location?.estimated_time || "N/A"}
+                    status={route.location?.status || "on-time"}
+                    vehicleType={route.vehicle_type}
+                  />
+                ))}
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="map">
@@ -85,7 +180,7 @@ const LiveTracker = () => {
                   <h3 className="text-xl font-semibold text-foreground">Interactive Map</h3>
                   <p className="text-muted-foreground max-w-md">
                     Live map integration will show real-time vehicle locations and routes.
-                    Enable Lovable Cloud to add map functionality with live tracking.
+                    Map view with GPS coordinates coming soon!
                   </p>
                   <Badge className="bg-primary text-primary-foreground">Coming Soon</Badge>
                 </div>
